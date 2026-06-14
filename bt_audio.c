@@ -21,6 +21,7 @@
 #include "pico/stdlib.h"
 
 #include "btstack.h"
+#include "app_config.h"
 #include "btstack_resample.h"
 #include "btstack_ring_buffer.h"
 
@@ -98,7 +99,7 @@ static int audio_stream_started = 0;
 static bool audio_playback_active = false;
 
 // Volume: 0-127 (AVRCP absolute volume scale)
-static uint8_t current_volume = 100; // Default ~78%
+
 
 // Temp storage for audio playback callback
 static int16_t *request_buffer;
@@ -126,8 +127,6 @@ typedef enum {
   STREAM_STATE_PLAYING,
   STREAM_STATE_PAUSED,
 } stream_state_t;
-
-#define MAX_CONNECTIONS 2
 
 typedef struct {
   uint8_t a2dp_local_seid;
@@ -206,19 +205,44 @@ static void switch_active_stream(void) {
 }
 
 static uint8_t get_active_volume(void) {
-    if (active_a2dp_cid == 0) return current_volume;
+    if (active_a2dp_cid == 0) return 127;
 
     a2dp_connection_t *a2dp = get_a2dp_connection(active_a2dp_cid);
-    if (!a2dp) return current_volume;
+    if (!a2dp) return 127;
 
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
         if (avrcp_connections[i].avrcp_cid != 0 && 
             bd_addr_cmp(avrcp_connections[i].addr, a2dp->addr) == 0) {
-            return avrcp_connections[i].volume > 0 ? avrcp_connections[i].volume : current_volume;
+            return avrcp_connections[i].volume > 0 ? avrcp_connections[i].volume : 127;
         }
     }
-    return current_volume;
+    return 127;
 }
+
+static void update_discoverability(void) {
+    int active_connections = 0;
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid != 0) {
+            active_connections++;
+        }
+    }
+    
+    if (active_connections >= MAX_CONNECTIONS) {
+        printf("[bt] Max connections reached. Turning OFF discoverability.\n");
+        gap_discoverable_control(0);
+    } else {
+        printf("[bt] Slot available. Turning ON discoverability.\n");
+        gap_discoverable_control(1);
+    }
+    
+    if (active_connections == 0) {
+        led_status_set(LED_STATE_DISCOVERABLE);
+    } else if (active_a2dp_cid == 0) {
+        led_status_set(LED_STATE_CONNECTED);
+    }
+}
+
+
 
 // ============================================================================
 // Volume Scaling
@@ -567,8 +591,9 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
     uint32_t samples_read = bytes_read / BYTES_PER_FRAME;
 
     // Apply volume scaling
+    uint8_t active_vol = get_active_volume();
     for (uint32_t i = 0; i < samples_read * NUM_CHANNELS; i++) {
-      samples[i] = apply_volume(samples[i], current_volume);
+      samples[i] = apply_volume(samples[i], active_vol);
     }
 
     audio_buf->sample_count = samples_read;
@@ -618,7 +643,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
     printf("[bt] A2DP connected: cid 0x%04x, addr %s\n", cid,
            bd_addr_to_str(conn->addr));
 
-    led_status_set(LED_STATE_CONNECTED);
+    update_discoverability();
     play_ui_sound(sound_connect);
     break;
   }
@@ -758,16 +783,13 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
         switch_active_stream();
     }
     
-    bool any_connected = false;
-    for (int i=0; i<MAX_CONNECTIONS; i++) {
-        if (a2dp_connections[i].a2dp_cid != 0) {
-            any_connected = true;
-            break;
-        }
-    }
+    update_discoverability();
     
-    if (!any_connected) {
-        led_status_set(LED_STATE_DISCOVERABLE);
+    int active_connections = 0;
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid != 0) active_connections++;
+    }
+    if (active_connections == 0) {
         play_ui_sound(sound_disconnect);
     }
     break;
@@ -852,7 +874,7 @@ static void avrcp_controller_packet_handler(uint8_t packet_type,
   case AVRCP_SUBEVENT_NOTIFICATION_VOLUME_CHANGED: {
     uint8_t vol =
         avrcp_subevent_notification_volume_changed_get_absolute_volume(packet);
-    current_volume = vol;
+
     printf("[avrcp] Volume changed: %u/127 (%u%%)\n", vol, (vol * 100) / 127);
     break;
   }
@@ -896,7 +918,7 @@ static void avrcp_target_packet_handler(uint8_t packet_type, uint16_t channel,
     if (conn) {
         conn->volume = vol;
     }
-    current_volume = vol; // Keep global in sync just in case
+
     printf("[avrcp-target] Volume set to: %u/127 for cid 0x%04x\n", vol, cid);
     break;
   }

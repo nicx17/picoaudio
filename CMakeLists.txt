@@ -44,9 +44,6 @@ target_compile_definitions(bluetooth_audio_receiver PRIVATE
     PICO_AUDIO_I2S_DATA_PIN=18
     PICO_AUDIO_I2S_CLOCK_PIN_BASE=16
 
-    # Bluetooth device name (visible to phones during pairing)
-    BT_DEVICE_NAME="Pico2W-Audio"
-
     # Use PIO0 for I2S (PIO1 is available for future use)
     PICO_AUDIO_I2S_PIO=0
 
