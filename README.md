@@ -11,6 +11,7 @@ Built using the BTstack library and the Pico C/C++ SDK.
 
 ## Architecture & Features
 
+- **Multipoint Bluetooth (Dual Device):** Supports 2 simultaneous A2DP and AVRCP connections. The firmware intelligently multiplexes incoming streams by maintaining independent connection states, decoding only the active stream, and dynamically switching to the standby device when the primary stream pauses. Volume is handled completely independently for each device.
 - **A2DP Sink & SBC Decoder:** Receives SBC encoded audio (up to Bitpool 53 / ~328 kbps) and decodes it to 16-bit PCM stereo.
 - **Hardware I2S Output:** Uses PIO and DMA to stream decoded audio to the I2S DAC at 44.1 kHz.
 - **Drift Synchronization:** Implements dynamic software resampling (`btstack_resample`) to synchronize the incoming Bluetooth clock with the RP2350 hardware I2S clock, preventing buffer under/overflows.

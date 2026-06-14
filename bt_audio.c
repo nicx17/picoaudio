@@ -127,11 +127,13 @@ typedef enum {
   STREAM_STATE_PAUSED,
 } stream_state_t;
 
+#define MAX_CONNECTIONS 2
+
 typedef struct {
   uint8_t a2dp_local_seid;
   uint8_t media_sbc_codec_configuration[4];
 } a2dp_sink_stream_endpoint_t;
-static a2dp_sink_stream_endpoint_t stream_endpoint;
+static a2dp_sink_stream_endpoint_t stream_endpoints[MAX_CONNECTIONS];
 
 typedef struct {
   bd_addr_t addr;
@@ -140,17 +142,83 @@ typedef struct {
   stream_state_t stream_state;
   media_codec_configuration_sbc_t sbc_configuration;
 } a2dp_connection_t;
-static a2dp_connection_t a2dp_connection;
+
+static a2dp_connection_t a2dp_connections[MAX_CONNECTIONS];
+static uint16_t active_a2dp_cid = 0;
 
 typedef struct {
   bd_addr_t addr;
   uint16_t avrcp_cid;
   bool playing;
   uint16_t notifications_supported_by_target;
+  uint8_t volume;
 } bt_avrcp_state_t;
-static bt_avrcp_state_t avrcp_conn;
+static bt_avrcp_state_t avrcp_connections[MAX_CONNECTIONS];
 
 static btstack_packet_callback_registration_t hci_event_callback_registration;
+
+static void media_processing_init(media_codec_configuration_sbc_t *config);
+static void media_processing_close(void);
+
+static a2dp_connection_t * get_a2dp_connection(uint16_t cid) {
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid == cid) return &a2dp_connections[i];
+    }
+    return NULL;
+}
+
+static a2dp_connection_t * get_free_a2dp_connection(void) {
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid == 0) return &a2dp_connections[i];
+    }
+    return NULL;
+}
+
+static bt_avrcp_state_t * get_avrcp_connection(uint16_t cid) {
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (avrcp_connections[i].avrcp_cid == cid) return &avrcp_connections[i];
+    }
+    return NULL;
+}
+
+static bt_avrcp_state_t * get_free_avrcp_connection(void) {
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (avrcp_connections[i].avrcp_cid == 0) return &avrcp_connections[i];
+    }
+    return NULL;
+}
+
+static void switch_active_stream(void) {
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid != 0 && a2dp_connections[i].stream_state == STREAM_STATE_PLAYING) {
+            active_a2dp_cid = a2dp_connections[i].a2dp_cid;
+            printf("[bt] Switched active stream to CID 0x%04x\n", active_a2dp_cid);
+            
+            media_processing_close();
+            media_processing_init(&a2dp_connections[i].sbc_configuration);
+            
+            return;
+        }
+    }
+    active_a2dp_cid = 0;
+    media_processing_close();
+    led_status_set(LED_STATE_CONNECTED);
+}
+
+static uint8_t get_active_volume(void) {
+    if (active_a2dp_cid == 0) return current_volume;
+
+    a2dp_connection_t *a2dp = get_a2dp_connection(active_a2dp_cid);
+    if (!a2dp) return current_volume;
+
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        if (avrcp_connections[i].avrcp_cid != 0 && 
+            bd_addr_cmp(avrcp_connections[i].addr, a2dp->addr) == 0) {
+            return avrcp_connections[i].volume > 0 ? avrcp_connections[i].volume : current_volume;
+        }
+    }
+    return current_volume;
+}
 
 // ============================================================================
 // Volume Scaling
@@ -282,8 +350,9 @@ static void playback_handler(int16_t *buffer, uint16_t num_frames) {
   }
 
   // Apply volume scaling to the output buffer
+  uint8_t vol = get_active_volume();
   for (uint16_t i = 0; i < num_frames * NUM_CHANNELS; i++) {
-    buffer[i] = apply_volume(buffer[i], current_volume);
+    buffer[i] = apply_volume(buffer[i], vol);
   }
 }
 
@@ -369,7 +438,19 @@ static void media_processing_close(void) {
 
 static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
                                            uint16_t size) {
-  (void)seid;
+  // Find active SEID
+  uint8_t active_seid_for_cid = 0;
+  for (int i=0; i<MAX_CONNECTIONS; i++) {
+      if (a2dp_connections[i].a2dp_cid == active_a2dp_cid) {
+          active_seid_for_cid = a2dp_connections[i].a2dp_local_seid;
+          break;
+      }
+  }
+
+  // Drop packet if not from the active audio source
+  if (seid != active_seid_for_cid) {
+      return;
+  }
 
   // Parse the media packet header
   // First byte is the media packet header (contains fragment/start/last info)
@@ -523,12 +604,19 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
       return;
     }
 
-    a2dp_connection.a2dp_cid = cid;
+    a2dp_connection_t * conn = get_free_a2dp_connection();
+    if (!conn) {
+      printf("[bt] No free A2DP connection slots\n");
+      // Could disconnect here, but let BTstack handle rejection
+      return;
+    }
+
+    conn->a2dp_cid = cid;
     a2dp_subevent_signaling_connection_established_get_bd_addr(
-        packet, a2dp_connection.addr);
+        packet, conn->addr);
 
     printf("[bt] A2DP connected: cid 0x%04x, addr %s\n", cid,
-           bd_addr_to_str(a2dp_connection.addr));
+           bd_addr_to_str(conn->addr));
 
     led_status_set(LED_STATE_CONNECTED);
     play_ui_sound(sound_connect);
@@ -536,8 +624,11 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   }
 
   case A2DP_SUBEVENT_SIGNALING_MEDIA_CODEC_SBC_CONFIGURATION: {
-    media_codec_configuration_sbc_t *config =
-        &a2dp_connection.sbc_configuration;
+    uint16_t cid = a2dp_subevent_signaling_media_codec_sbc_configuration_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
+
+    media_codec_configuration_sbc_t *config = &conn->sbc_configuration;
 
     config->reconfigure =
         a2dp_subevent_signaling_media_codec_sbc_configuration_get_reconfigure(
@@ -580,61 +671,107 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
       return;
     }
 
-    a2dp_connection.stream_state = STREAM_STATE_OPEN;
-    a2dp_connection.a2dp_local_seid =
+    uint16_t cid = a2dp_subevent_stream_established_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) return;
+
+    conn->stream_state = STREAM_STATE_OPEN;
+    conn->a2dp_local_seid =
         a2dp_subevent_stream_established_get_local_seid(packet);
 
     printf("[bt] A2DP stream established, seid %u\n",
-           a2dp_connection.a2dp_local_seid);
+           conn->a2dp_local_seid);
     break;
   }
 
-  case A2DP_SUBEVENT_STREAM_STARTED:
-    printf("[bt] Stream STARTED\n");
-    a2dp_connection.stream_state = STREAM_STATE_PLAYING;
-    media_processing_init(&a2dp_connection.sbc_configuration);
-    audio_stream_started = 1;
-    led_status_set(LED_STATE_STREAMING);
-    break;
+  case A2DP_SUBEVENT_STREAM_STARTED: {
+    uint16_t cid = a2dp_subevent_stream_started_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
 
-  case A2DP_SUBEVENT_STREAM_SUSPENDED:
-    printf("[bt] Stream PAUSED\n");
-    a2dp_connection.stream_state = STREAM_STATE_PAUSED;
-    audio_playback_active = false;
-    btstack_ring_buffer_reset(&decoded_audio_ring_buffer);
-    btstack_ring_buffer_reset(&sbc_frame_ring_buffer);
-    led_status_set(LED_STATE_CONNECTED);
+    printf("[bt] Stream STARTED for cid 0x%04x\n", cid);
+    conn->stream_state = STREAM_STATE_PLAYING;
+    
+    if (active_a2dp_cid == 0) {
+        active_a2dp_cid = cid;
+        media_processing_close();
+        media_processing_init(&conn->sbc_configuration);
+        audio_stream_started = 1;
+        led_status_set(LED_STATE_STREAMING);
+    }
     break;
+  }
 
-  case A2DP_SUBEVENT_STREAM_STOPPED:
-    printf("[bt] Stream STOPPED\n");
-    a2dp_connection.stream_state = STREAM_STATE_PAUSED;
-    audio_stream_started = 0;
-    audio_playback_active = false;
-    btstack_ring_buffer_reset(&decoded_audio_ring_buffer);
-    btstack_ring_buffer_reset(&sbc_frame_ring_buffer);
-    led_status_set(LED_STATE_CONNECTED);
+  case A2DP_SUBEVENT_STREAM_SUSPENDED: {
+    uint16_t cid = a2dp_subevent_stream_suspended_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
+
+    printf("[bt] Stream PAUSED for cid 0x%04x\n", cid);
+    conn->stream_state = STREAM_STATE_PAUSED;
+
+    if (active_a2dp_cid == cid) {
+        switch_active_stream();
+    }
     break;
+  }
 
-  case A2DP_SUBEVENT_STREAM_RELEASED:
-    printf("[bt] Stream RELEASED\n");
-    a2dp_connection.stream_state = STREAM_STATE_CLOSED;
-    media_processing_close();
-    led_status_set(LED_STATE_DISCOVERABLE);
+  case A2DP_SUBEVENT_STREAM_STOPPED: {
+    uint16_t cid = a2dp_subevent_stream_stopped_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
+
+    printf("[bt] Stream STOPPED for cid 0x%04x\n", cid);
+    conn->stream_state = STREAM_STATE_PAUSED;
+    
+    if (active_a2dp_cid == cid) {
+        switch_active_stream();
+    }
     break;
+  }
 
-  case A2DP_SUBEVENT_SIGNALING_CONNECTION_RELEASED:
-    printf("[bt] A2DP disconnected\n");
-    a2dp_connection.a2dp_cid = 0;
-    media_processing_close();
-    led_status_set(LED_STATE_DISCOVERABLE);
-    play_ui_sound(sound_disconnect);
+  case A2DP_SUBEVENT_STREAM_RELEASED: {
+    uint16_t cid = a2dp_subevent_stream_released_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
 
-    // Reboot to ensure clean reconnection (BTstack workaround)
-    printf("[bt] Rebooting for clean reconnection...\n");
-    sleep_ms(500);
-    watchdog_reboot(0, 0, 0);
+    printf("[bt] Stream RELEASED for cid 0x%04x\n", cid);
+    conn->stream_state = STREAM_STATE_PAUSED;
+
+    if (active_a2dp_cid == cid) {
+        switch_active_stream();
+    }
     break;
+  }
+
+  case A2DP_SUBEVENT_SIGNALING_CONNECTION_RELEASED: {
+    uint16_t cid = a2dp_subevent_signaling_connection_released_get_a2dp_cid(packet);
+    a2dp_connection_t * conn = get_a2dp_connection(cid);
+    if (!conn) break;
+
+    printf("[bt] A2DP disconnected for cid 0x%04x\n", cid);
+    
+    conn->a2dp_cid = 0;
+    conn->stream_state = STREAM_STATE_CLOSED;
+    
+    if (active_a2dp_cid == cid) {
+        switch_active_stream();
+    }
+    
+    bool any_connected = false;
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid != 0) {
+            any_connected = true;
+            break;
+        }
+    }
+    
+    if (!any_connected) {
+        led_status_set(LED_STATE_DISCOVERABLE);
+        play_ui_sound(sound_disconnect);
+    }
+    break;
+  }
 
   default:
     break;
@@ -659,16 +796,19 @@ static void avrcp_packet_handler(uint8_t packet_type, uint16_t channel,
 
   switch (subevent) {
   case AVRCP_SUBEVENT_CONNECTION_ESTABLISHED: {
-    uint8_t status = avrcp_subevent_connection_established_get_status(packet);
     uint16_t cid = avrcp_subevent_connection_established_get_avrcp_cid(packet);
+    bt_avrcp_state_t * conn = get_free_avrcp_connection();
+    if (!conn) return;
 
+    conn->avrcp_cid = cid;
+    conn->volume = 100; // Default volume per connection
+    avrcp_subevent_connection_established_get_bd_addr(packet, conn->addr);
+
+    uint8_t status = avrcp_subevent_connection_established_get_status(packet);
     if (status != ERROR_CODE_SUCCESS) {
       printf("[avrcp] Connection FAILED: 0x%02x\n", status);
       return;
     }
-
-    avrcp_conn.avrcp_cid = cid;
-    avrcp_subevent_connection_established_get_bd_addr(packet, avrcp_conn.addr);
 
     printf("[avrcp] Connected: cid 0x%04x\n", cid);
 
@@ -680,10 +820,15 @@ static void avrcp_packet_handler(uint8_t packet_type, uint16_t channel,
     break;
   }
 
-  case AVRCP_SUBEVENT_CONNECTION_RELEASED:
+  case AVRCP_SUBEVENT_CONNECTION_RELEASED: {
+    uint16_t cid = avrcp_subevent_connection_released_get_avrcp_cid(packet);
+    bt_avrcp_state_t * conn = get_avrcp_connection(cid);
+    if (conn) {
+        conn->avrcp_cid = 0;
+    }
     printf("[avrcp] Disconnected\n");
-    avrcp_conn.avrcp_cid = 0;
     break;
+  }
 
   default:
     break;
@@ -716,8 +861,11 @@ static void avrcp_controller_packet_handler(uint8_t packet_type,
     uint8_t status =
         avrcp_subevent_notification_playback_status_changed_get_play_status(
             packet);
-    printf("[avrcp] Playback status: %u\n", status);
-    avrcp_conn.playing = (status == AVRCP_PLAYBACK_STATUS_PLAYING);
+    uint16_t cid = avrcp_subevent_notification_playback_status_changed_get_avrcp_cid(packet);
+    bt_avrcp_state_t * conn = get_avrcp_connection(cid);
+    if (conn) {
+        conn->playing = (status == AVRCP_PLAYBACK_STATUS_PLAYING);
+    }
     break;
   }
 
@@ -742,8 +890,14 @@ static void avrcp_target_packet_handler(uint8_t packet_type, uint16_t channel,
   case AVRCP_SUBEVENT_NOTIFICATION_VOLUME_CHANGED: {
     uint8_t vol =
         avrcp_subevent_notification_volume_changed_get_absolute_volume(packet);
-    current_volume = vol;
-    printf("[avrcp-target] Volume set to: %u/127\n", vol);
+    uint16_t cid = avrcp_subevent_notification_volume_changed_get_avrcp_cid(packet);
+    bt_avrcp_state_t *conn = get_avrcp_connection(cid);
+    
+    if (conn) {
+        conn->volume = vol;
+    }
+    current_volume = vol; // Keep global in sync just in case
+    printf("[avrcp-target] Volume set to: %u/127 for cid 0x%04x\n", vol, cid);
     break;
   }
 
@@ -824,21 +978,23 @@ bool bt_audio_init(void) {
   a2dp_sink_register_packet_handler(&a2dp_sink_packet_handler);
   a2dp_sink_register_media_handler(&handle_l2cap_media_data_packet);
 
-  // Create A2DP stream endpoint with SBC codec
-  avdtp_stream_endpoint_t *local_stream_endpoint =
-      a2dp_sink_create_stream_endpoint(
-          AVDTP_AUDIO, AVDTP_CODEC_SBC, media_sbc_codec_capabilities,
-          sizeof(media_sbc_codec_capabilities),
-          stream_endpoint.media_sbc_codec_configuration,
-          sizeof(stream_endpoint.media_sbc_codec_configuration));
+  // Create multiple A2DP stream endpoints with SBC codec
+  for (int i=0; i<MAX_CONNECTIONS; i++) {
+      avdtp_stream_endpoint_t *local_stream_endpoint =
+          a2dp_sink_create_stream_endpoint(
+              AVDTP_AUDIO, AVDTP_CODEC_SBC, media_sbc_codec_capabilities,
+              sizeof(media_sbc_codec_capabilities),
+              stream_endpoints[i].media_sbc_codec_configuration,
+              sizeof(stream_endpoints[i].media_sbc_codec_configuration));
 
-  if (!local_stream_endpoint) {
-    printf("[bt] ERROR: Failed to create A2DP stream endpoint\n");
-    return false;
+      if (!local_stream_endpoint) {
+        printf("[bt] ERROR: Failed to create A2DP stream endpoint %d\n", i);
+        return false;
+      }
+
+      stream_endpoints[i].a2dp_local_seid = avdtp_local_seid(local_stream_endpoint);
+      printf("[bt] A2DP Sink SEID created: %u\n", stream_endpoints[i].a2dp_local_seid);
   }
-
-  stream_endpoint.a2dp_local_seid = avdtp_local_seid(local_stream_endpoint);
-  printf("[bt] A2DP Sink SEID: %u\n", stream_endpoint.a2dp_local_seid);
 
   // Init AVRCP
   avrcp_init();
