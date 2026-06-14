@@ -18,6 +18,46 @@ Built using the BTstack library and the Pico C/C++ SDK.
 - **AVRCP Volume Control:** Processes AVRCP absolute volume commands and applies a logarithmic (quadratic) scaling function to the PCM data in software.
 - **UI Sound Synthesizer:** Contains a blocking square-wave synthesizer that injects status tones directly into the I2S hardware pool on boot, connection, and disconnection events.
 
+### Data Flow
+
+```text
+  ┌──────────┐     Bluetooth      ┌─────────────────────────────────────┐
+  │          │   A2DP / SBC       │        Raspberry Pi Pico 2 W        │
+  │  Phone   │ ─── ~328 kbps ──> │                                     │
+  │          │   (wireless)       │  CYW43439 Radio                     │
+  └──────────┘                    │       │                             │
+                                  │       v                             │
+                                  │  BTstack (A2DP Sink)                │
+                                  │       │                             │
+                                  │       v                             │
+                                  │  SBC Decoder (bitpool 53)           │
+                                  │       │                             │
+                                  │       v                             │
+                                  │  Volume Scaling (AVRCP: 0-127)      │
+                                  │       │                             │
+                                  │       v                             │
+                                  │  DMA -> PIO I2S State Machine       │
+                                  │       │                             │
+                                  └───────┼─────────────────────────────┘
+                                          │
+                              GPIO 16 (BCLK)
+                              GPIO 17 (WSEL)    I2S Bus (3 wires)
+                              GPIO 18 (DIN)
+                                          │
+                                          v
+                                  ┌───────────────┐
+                                  │  CJMCU-1334   │
+                                  │  (UDA1334A)   │
+                                  │               │
+                                  │  I2S -> DAC   │
+                                  │       │       │
+                                  │   3.5mm Jack  │
+                                  └───────┼───────┘
+                                          │
+                                          v
+                                    Speaker / Headphones
+```
+
 ## UI Sound Configuration
 
 The status tones are generated mathematically via `bt_audio.c`. Configuration is managed via preprocessor macros:
@@ -33,6 +73,38 @@ The status tones are generated mathematically via `bt_audio.c`. Configuration is
 | **CJMCU-1334** (UDA1334A) | I2S DAC |
 
 ## Wiring Guide
+
+### Connection Diagram
+
+```text
+                    ┌──────────────────┐
+              ┌─────┤ USB              ├─────┐
+              │     └──────────────────┘     │
+   UART0 TX ──┤ GP0  (1)        (40) VBUS   ├── 5V USB Power ──────> CJMCU VIN
+   UART0 RX ──┤ GP1  (2)        (39) VSYS   │
+              ┤ GND  (3)        (38) GND    ├── Ground ─────────────> CJMCU GND
+              ┤ GP2  (4)        (37) 3V3_EN  │
+              ┤ GP3  (5)        (36) 3V3 OUT │
+              ┤ GP4  (6)        (35) ADC_REF │
+              ┤ GP5  (7)        (34) GP28/A2 │
+              ┤ GND  (8)        (33) GND     │
+              ┤ GP6  (9)        (32) GP27/A1 │
+              ┤ GP7  (10)       (31) GP26/A0 │
+              ┤ GP8  (11)       (30) RUN     │
+              ┤ GP9  (12)       (29) GP22    │
+              ┤ GND  (13)       (28) GND     │
+              ┤ GP10 (14)       (27) GP21    │
+              ┤ GP11 (15)       (26) GP20    │
+              ┤ GP12 (16)       (25) GP19    │
+              ┤ GP13 (17)       (24) GP18    ├── I2S Data (DIN) ────> CJMCU DIN
+              ┤ GND  (18)       (23) GND     │
+              ┤ GP14 (19)       (22) GP17    ├── I2S Word Sel ──────> CJMCU WSEL
+              ┤ GP15 (20)       (21) GP16    ├── I2S Bit Clock ─────> CJMCU BCLK
+              └──────────────────────────────┘
+                     Raspberry Pi Pico 2 W
+```
+
+### Pin Table
 
 | Pico 2 W Pin | Physical Pin | CJMCU-1334 | Signal |
 |---|---|---|---|
@@ -89,6 +161,9 @@ cp build/bluetooth_audio_receiver.uf2 /run/media/$USER/RP2350/
 | No LED blink on boot | CYW43 init failure | Verify USB power, reflash `.uf2` |
 | Volume buttons unresponsive | AVRCP sync failure | Re-pair the device; check UART logs for `[avrcp]` |
 | Audio distortion | Floating DAC config pins | Bridge SF0 and SF1 to GND on the DAC board |
+
+## References
+- [Adafruit UDA1334A I2S Stereo Decoder Datasheet & Guide (PDF)](https://cdn-learn.adafruit.com/downloads/pdf/adafruit-i2s-stereo-decoder-uda1334a.pdf)
 
 ## License
 Licensed under the MIT License. See `LICENSE` for details.
