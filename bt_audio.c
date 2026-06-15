@@ -533,13 +533,35 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
     if (sbc_frames_in_buffer >= OPTIMAL_FRAMES_MIN) {
       audio_playback_active = true;
     } else {
+      // Feed silence to I2S pool to prevent hardware DMA underrun / buzzing
+      audio_buffer_pool_t *pool = i2s_output_get_producer_pool();
+      if (pool) {
+        while (true) {
+          audio_buffer_t *audio_buf = take_audio_buffer(pool, false);
+          if (!audio_buf) break;
+          memset(audio_buf->buffer->bytes, 0, audio_buf->max_sample_count * BYTES_PER_FRAME);
+          audio_buf->sample_count = audio_buf->max_sample_count;
+          give_audio_buffer(pool, audio_buf);
+        }
+      }
       return; // Wait for more frames to buffer
     }
   } else if (sbc_frames_in_buffer < 10) {
     // Severe buffer underrun detected (connection struggling).
-    // Pause playback to force a complete re-buffer (up to 60 frames)
-    // rather than suffering continuous micro-stutters and pops.
+    // Pause playback to force a complete re-buffer
     audio_playback_active = false;
+    
+    // Feed silence to I2S pool to prevent hardware DMA underrun / buzzing
+    audio_buffer_pool_t *pool = i2s_output_get_producer_pool();
+    if (pool) {
+      while (true) {
+        audio_buffer_t *audio_buf = take_audio_buffer(pool, false);
+        if (!audio_buf) break;
+        memset(audio_buf->buffer->bytes, 0, audio_buf->max_sample_count * BYTES_PER_FRAME);
+        audio_buf->sample_count = audio_buf->max_sample_count;
+        give_audio_buffer(pool, audio_buf);
+      }
+    }
     return;
   }
 
