@@ -1,10 +1,16 @@
-# Pico 2 W Bluetooth Audio Receiver
+<p align="center">
+  <img src="./assets/project_icon.svg" width="150" alt="picoaudio logo">
+</p>
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/nicx17/picoaudio/build.yml?style=for-the-badge)
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
-![Platform: Pico 2 W](https://img.shields.io/badge/Platform-Raspberry%20Pi%20Pico%202%20W-red.svg?style=for-the-badge)
-![Language: C/C++](https://img.shields.io/badge/Language-C%2FC%2B%2B-00599C.svg?style=for-the-badge)
-![Bluetooth: BTstack](https://img.shields.io/badge/Bluetooth-BTstack-0B5C92.svg?style=for-the-badge)
+<h1 align="center">picoaudio</h1>
+
+<p align="center">
+  <img src="https://img.shields.io/github/actions/workflow/status/nicx17/picoaudio/build.yml?style=for-the-badge" alt="Build Status">
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/badge/Platform-Raspberry%20Pi%20Pico%202%20W-red.svg?style=for-the-badge" alt="Platform">
+  <img src="https://img.shields.io/badge/Language-C%2FC%2B%2B-00599C.svg?style=for-the-badge" alt="Language">
+  <img src="https://img.shields.io/badge/Bluetooth-BTstack-0B5C92.svg?style=for-the-badge" alt="Bluetooth">
+</p>
 
 A Bluetooth A2DP audio receiver for the Raspberry Pi Pico 2 W. It receives Bluetooth audio and outputs 16-bit stereo PCM over I2S to a CJMCU-1334 (UDA1334A) DAC. 
 
@@ -126,6 +132,31 @@ Most breakout boards pull these low by default:
 - **PLL:** LOW (Audio PLL mode)
 - **DEEM:** LOW (De-emphasis OFF)
 - **MUTE:** LOW (Mute OFF)
+
+## Hardware Setup & Demo
+
+### Project in Action
+
+Here is the receiver in action! The Raspberry Pi Pico 2 W and the CJMCU-1334 DAC board are connected directly to a 2.1 channel sound system through the 3.5mm audio jack.
+
+<video src="./assets/project_in_action.mp4" controls="controls" width="100%">
+  Your browser does not support the video tag.
+</video>
+
+### Wiring Closeups
+
+![Breadboard Setup](./assets/breadboard_setup.jpg)
+
+<p align="center">
+  <img src="./assets/pico_2_w_closeup.jpg" width="48%" alt="Raspberry Pi Pico 2 W Closeup">
+  <img src="./assets/cjmcu_dac_closeup.jpg" width="48%" alt="CJMCU-1334 DAC Closeup">
+</p>
+
+### Serial Logs
+
+<video src="./assets/serial_logs_demo.mp4" controls="controls" width="100%">
+  Your browser does not support the video tag.
+</video>
 
 ## Download Latest Firmware
 
