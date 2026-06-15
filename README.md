@@ -29,16 +29,16 @@ Built using the BTstack library and the Pico C/C++ SDK.
   │          │   (wireless)       │  CYW43439 Radio                     │
   └──────────┘                    │       │                             │
                                   │       v                             │
-                                  │  BTstack (A2DP Sink)                │
+                                  │ [CORE 0] BTstack (A2DP Sink)        │
+                                  │       │                             │
+                                  │       v (Thread-Safe Queue)         │
+                                  │ [CORE 1] SBC Decoder (bitpool 53)   │
                                   │       │                             │
                                   │       v                             │
-                                  │  SBC Decoder (bitpool 53)           │
+                                  │ [CORE 1] Volume Scaling (AVRCP)     │
                                   │       │                             │
                                   │       v                             │
-                                  │  Volume Scaling (AVRCP: 0-127)      │
-                                  │       │                             │
-                                  │       v                             │
-                                  │  DMA -> PIO I2S State Machine       │
+                                  │ [CORE 1] DMA -> PIO I2S State Mach. │
                                   │       │                             │
                                   └───────┼─────────────────────────────┘
                                           │
