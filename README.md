@@ -127,6 +127,13 @@ Most breakout boards pull these low by default:
 - **DEEM:** LOW (De-emphasis OFF)
 - **MUTE:** LOW (Mute OFF)
 
+## Download Latest Firmware
+
+You can download the pre-compiled `.uf2` firmware from the latest successful build here:
+[**📥 Download Latest Firmware (pico-audio-firmware.zip)**](https://nightly.link/nicx17/picoaudio/workflows/build.yml/main/pico-audio-firmware.zip)
+
+*(Extract the `.zip` to find the `.uf2` file, then follow the flashing instructions below).*
+
 ## Build Instructions
 
 1. Install and configure the Raspberry Pi Pico C/C++ SDK for the RP2350.
