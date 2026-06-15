@@ -139,9 +139,7 @@ Most breakout boards pull these low by default:
 
 Here is the receiver in action! The Raspberry Pi Pico 2 W and the CJMCU-1334 DAC board are connected directly to a 2.1 channel sound system through the 3.5mm audio jack.
 
-<video src="./assets/project_in_action.mp4" controls="controls" width="100%">
-  Your browser does not support the video tag.
-</video>
+[![Watch the video](./assets/youtube_thumbnail.jpg)](https://youtu.be/_wECP0X2Tsw)
 
 ### Wiring Closeups
 
