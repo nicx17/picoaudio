@@ -18,20 +18,27 @@
 #define I2S_NUM_CHANNELS 2
 
 // Buffer configuration
-#define I2S_BUFFER_COUNT 8
-#define I2S_SAMPLES_PER_BUFFER 512
+#define I2S_BUFFER_COUNT 4
+#define I2S_SAMPLES_PER_BUFFER 256
+
+// DAC Mute Pin
+#define DAC_MUTE_PIN 15
 
 /*
  * Initialize the I2S output hardware.
- *
  * Sets up PIO state machine, DMA channel, and audio buffer pool.
  * Pin assignments are taken from compile definitions:
- *   PICO_AUDIO_I2S_DATA_PIN (default: GPIO 18)
- *   PICO_AUDIO_I2S_CLOCK_PIN_BASE (default: GPIO 16)
- *
- * Returns true on success, false on failure.
+ * - PICO_AUDIO_I2S_DATA_PIN
+ * - PICO_AUDIO_I2S_CLOCK_PIN_BASE
+ * Returns true if successful.
  */
 bool i2s_output_init(void);
+
+/*
+ * Set the hardware mute state of the DAC.
+ * true = muted, false = unmuted.
+ */
+void i2s_output_set_mute(bool mute);
 
 /*
  * Update the sample rate if the A2DP source negotiates a different rate.

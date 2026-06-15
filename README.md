@@ -11,12 +11,13 @@ Built using the BTstack library and the Pico C/C++ SDK.
 
 ## Architecture & Features
 
+- **Dual-Core Architecture:** Offloads the heavy SBC audio decoding entirely to Core 1 via a hardware-spinlock queue, ensuring that the Bluetooth stack on Core 0 never drops packets due to CPU starvation.
+- **Ultra-Low Latency:** Optimized buffer sizes (I2S DMA and thread-safe queue) to achieve ~55ms total audio latency, perfect for lip-synced video playback.
 - **Multipoint Bluetooth (Dual Device):** Supports 2 simultaneous A2DP and AVRCP connections. The firmware intelligently multiplexes incoming streams by maintaining independent connection states, decoding only the active stream, and dynamically switching to the standby device when the primary stream pauses. Volume is handled completely independently for each device.
 - **A2DP Sink & SBC Decoder:** Receives SBC encoded audio (up to Bitpool 53 / ~328 kbps) and decodes it to 16-bit PCM stereo.
 - **Hardware I2S Output:** Uses PIO and DMA to stream decoded audio to the I2S DAC at 44.1 kHz.
 - **Drift Synchronization:** Implements dynamic software resampling (`btstack_resample`) to synchronize the incoming Bluetooth clock with the RP2350 hardware I2S clock, preventing buffer under/overflows.
-- **Audio Buffering:** Allocates 92ms of I2S DMA buffering to mitigate CPU contention between the CYW43439 Wi-Fi/BT combo chip and audio processing.
-- **AVRCP Volume Control:** Processes AVRCP absolute volume commands and applies a logarithmic (quadratic) scaling function to the PCM data in software.
+- **Hardware Mute & AVRCP Volume:** Physical GPIO toggles hardware mute on the DAC. Processes AVRCP absolute volume commands and applies a logarithmic (quadratic) scaling function to the PCM data in software.
 - **UI Sound Synthesizer:** Contains a blocking square-wave synthesizer that injects status tones directly into the I2S hardware pool on boot, connection, and disconnection events.
 
 ### Data Flow
@@ -99,8 +100,8 @@ Volume Down ──┤ GP5  (7)        (34) GP28/A2 │
               ┤ GP12 (16)       (25) GP19    │
               ┤ GP13 (17)       (24) GP18    ├── I2S Data (DIN) ────> CJMCU DIN
               ┤ GND  (18)       (23) GND     │
-              ┤ GP14 (19)       (22) GP17    ├── I2S LRCK (WSEL) ───> CJMCU WSEL
-              ┤ GP15 (20)       (21) GP16    ├── I2S BCLK ──────────> CJMCU BCLK
+              ┤ GP14 (19)       (22) GP17    ├── I2S WSEL ──────────> CJMCU WSEL
+   DAC Mute ──┤ GP15 (20)       (21) GP16    ├── I2S BCLK ──────────> CJMCU BCLK
               └──────────────────────────────┘
                      Raspberry Pi Pico 2 W
 ```

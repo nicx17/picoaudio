@@ -21,9 +21,12 @@
 bool bt_audio_init(void);
 
 /*
- * Play powerup sound synchronously via I2S
+ * Play the powerup sound (blocking)
  */
 void bt_audio_play_powerup_sound(void);
+
+// Entry point for Core 1 (Dual-Core Audio Decoding)
+void core1_audio_decoder(void);
 
 // Button Command Handlers
 void bt_audio_cmd_play_pause(void);

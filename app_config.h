@@ -5,7 +5,7 @@
  * ==========================================
  * BLUETOOTH RECEIVER CONFIGURATION
  * ==========================================
- * 
+ *
  * Edit this file to easily customize your receiver!
  */
 
@@ -17,7 +17,16 @@
 // Set to 2 to enable Multipoint Bluetooth features.
 #define MAX_CONNECTIONS 2
 
+// UI Sound Synthesizer Enable
+// Set to 1 to enable the synthesizer, 0 to disable.
+#ifndef ENABLE_UI_SOUNDS
+#define ENABLE_UI_SOUNDS 1
+#endif
 
-
+// UI Sound Volume (16-bit PCM amplitude)
+// Max is 32767. 50 provides a comfortable quiet chime.
+#ifndef UI_SOUND_VOLUME
+#define UI_SOUND_VOLUME 50
+#endif
 
 #endif // APP_CONFIG_H

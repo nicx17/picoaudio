@@ -85,7 +85,18 @@ bool i2s_output_init(void) {
          PICO_AUDIO_I2S_CLOCK_PIN_BASE, PICO_AUDIO_I2S_CLOCK_PIN_BASE,
          PICO_AUDIO_I2S_CLOCK_PIN_BASE + 1);
 
+  // Initialize Mute GPIO
+  gpio_init(DAC_MUTE_PIN);
+  gpio_set_dir(DAC_MUTE_PIN, GPIO_OUT);
+  gpio_put(DAC_MUTE_PIN, 0); // Active HIGH (0 = Unmuted, 1 = Muted)
+
   return true;
+}
+
+void i2s_output_set_mute(bool mute) {
+  // CJMCU-1334 MUTE is active HIGH
+  gpio_put(DAC_MUTE_PIN, mute ? 1 : 0);
+  printf("[i2s] DAC Hardware Mute: %s\n", mute ? "ON" : "OFF");
 }
 
 void i2s_output_set_sample_rate(uint32_t sample_rate) {
