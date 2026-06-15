@@ -1,5 +1,6 @@
 # Pico 2 W Bluetooth Audio Receiver
 
+![Build Status](https://img.shields.io/github/actions/workflow/status/nicx17/picoaudio/build.yml?style=for-the-badge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
 ![Platform: Pico 2 W](https://img.shields.io/badge/Platform-Raspberry%20Pi%20Pico%202%20W-red.svg?style=for-the-badge)
 ![Language: C/C++](https://img.shields.io/badge/Language-C%2FC%2B%2B-00599C.svg?style=for-the-badge)
