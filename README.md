@@ -84,14 +84,14 @@ The status tones are generated mathematically via `bt_audio.c`. Configuration is
    UART0 TX ──┤ GP0  (1)        (40) VBUS   ├── 5V USB Power ──────> CJMCU VIN
    UART0 RX ──┤ GP1  (2)        (39) VSYS   │
               ┤ GND  (3)        (38) GND    ├── Ground ─────────────> CJMCU GND
-              ┤ GP2  (4)        (37) 3V3_EN  │
-              ┤ GP3  (5)        (36) 3V3 OUT │
-              ┤ GP4  (6)        (35) ADC_REF │
-              ┤ GP5  (7)        (34) GP28/A2 │
+ Play/Pause ──┤ GP2  (4)        (37) 3V3_EN  │
+       Mute ──┤ GP3  (5)        (36) 3V3 OUT │
+  Volume Up ──┤ GP4  (6)        (35) ADC_REF │
+Volume Down ──┤ GP5  (7)        (34) GP28/A2 │
               ┤ GND  (8)        (33) GND     │
-              ┤ GP6  (9)        (32) GP27/A1 │
-              ┤ GP7  (10)       (31) GP26/A0 │
-              ┤ GP8  (11)       (30) RUN     │
+  Next Song ──┤ GP6  (9)        (32) GP27/A1 │
+  Prev Song ──┤ GP7  (10)       (31) GP26/A0 │
+    Pairing ──┤ GP8  (11)       (30) RUN     │
               ┤ GP9  (12)       (29) GP22    │
               ┤ GND  (13)       (28) GND     │
               ┤ GP10 (14)       (27) GP21    │
@@ -99,8 +99,8 @@ The status tones are generated mathematically via `bt_audio.c`. Configuration is
               ┤ GP12 (16)       (25) GP19    │
               ┤ GP13 (17)       (24) GP18    ├── I2S Data (DIN) ────> CJMCU DIN
               ┤ GND  (18)       (23) GND     │
-              ┤ GP14 (19)       (22) GP17    ├── I2S Word Sel ──────> CJMCU WSEL
-              ┤ GP15 (20)       (21) GP16    ├── I2S Bit Clock ─────> CJMCU BCLK
+              ┤ GP14 (19)       (22) GP17    ├── I2S LRCK (WSEL) ───> CJMCU WSEL
+              ┤ GP15 (20)       (21) GP16    ├── I2S BCLK ──────────> CJMCU BCLK
               └──────────────────────────────┘
                      Raspberry Pi Pico 2 W
 ```

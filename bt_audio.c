@@ -34,7 +34,6 @@
 #define MAX_SBC_FRAME_SIZE 120
 
 // Ring buffer sizing for SBC frames
-// Targets 60-80 frames in the buffer for smooth playback
 #define OPTIMAL_FRAMES_MIN 60
 #define OPTIMAL_FRAMES_MAX 80
 #define ADDITIONAL_FRAMES 30
@@ -144,6 +143,7 @@ typedef struct {
 
 static a2dp_connection_t a2dp_connections[MAX_CONNECTIONS];
 static uint16_t active_a2dp_cid = 0;
+static uint16_t last_active_a2dp_cid = 0;
 
 typedef struct {
   bd_addr_t addr;
@@ -158,6 +158,7 @@ static btstack_packet_callback_registration_t hci_event_callback_registration;
 
 static void media_processing_init(media_codec_configuration_sbc_t *config);
 static void media_processing_close(void);
+static void update_hw_volume(void);
 
 static a2dp_connection_t * get_a2dp_connection(uint16_t cid) {
     for (int i=0; i<MAX_CONNECTIONS; i++) {
@@ -191,6 +192,8 @@ static void switch_active_stream(void) {
     for (int i=0; i<MAX_CONNECTIONS; i++) {
         if (a2dp_connections[i].a2dp_cid != 0 && a2dp_connections[i].stream_state == STREAM_STATE_PLAYING) {
             active_a2dp_cid = a2dp_connections[i].a2dp_cid;
+            last_active_a2dp_cid = active_a2dp_cid;
+            update_hw_volume();
             printf("[bt] Switched active stream to CID 0x%04x\n", active_a2dp_cid);
             
             media_processing_close();
@@ -204,19 +207,28 @@ static void switch_active_stream(void) {
     led_status_set(LED_STATE_CONNECTED);
 }
 
-static uint8_t get_active_volume(void) {
-    if (active_a2dp_cid == 0) return 127;
+volatile uint8_t current_hw_volume = 127;
+
+static void update_hw_volume(void) {
+    if (active_a2dp_cid == 0) {
+        current_hw_volume = 127;
+        return;
+    }
 
     a2dp_connection_t *a2dp = get_a2dp_connection(active_a2dp_cid);
-    if (!a2dp) return 127;
+    if (!a2dp) {
+        current_hw_volume = 127;
+        return;
+    }
 
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
         if (avrcp_connections[i].avrcp_cid != 0 && 
             bd_addr_cmp(avrcp_connections[i].addr, a2dp->addr) == 0) {
-            return avrcp_connections[i].volume > 0 ? avrcp_connections[i].volume : 127;
+            current_hw_volume = avrcp_connections[i].volume > 0 ? avrcp_connections[i].volume : 127;
+            return;
         }
     }
-    return 127;
+    current_hw_volume = 127;
 }
 
 static void update_discoverability(void) {
@@ -374,7 +386,7 @@ static void playback_handler(int16_t *buffer, uint16_t num_frames) {
   }
 
   // Apply volume scaling to the output buffer
-  uint8_t vol = get_active_volume();
+  uint8_t vol = current_hw_volume;
   for (uint16_t i = 0; i < num_frames * NUM_CHANNELS; i++) {
     buffer[i] = apply_volume(buffer[i], vol);
   }
@@ -528,6 +540,20 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
   }
   btstack_resample_set_factor(&resample_instance, resampling_factor);
 
+  static uint32_t latency_log_counter = 0;
+  latency_log_counter++;
+  if (latency_log_counter >= 150) { // Log roughly every ~500ms
+      latency_log_counter = 0;
+      float sbc_latency_ms = (float)sbc_frames_in_buffer * 128.0f * 1000.0f / 44100.0f; // Assuming 44.1kHz
+      uint32_t decoded_bytes = btstack_ring_buffer_bytes_available(&decoded_audio_ring_buffer);
+      float pcm_latency_ms = (float)(decoded_bytes / BYTES_PER_FRAME) * 1000.0f / 44100.0f;
+      // I2S buffer latency: I2S_BUFFER_COUNT * I2S_SAMPLES_PER_BUFFER at 44.1kHz = 8 * 512 / 44.1 = 92.8ms
+      float i2s_latency_ms = 92.8f; 
+      printf("[audio] Latency -> SBC: %.1fms, PCM: %.1fms, I2S: %.1fms | Total: %.1fms\n", 
+             sbc_latency_ms, pcm_latency_ms, i2s_latency_ms, 
+             sbc_latency_ms + pcm_latency_ms + i2s_latency_ms);
+  }
+
   // Only start decoding and feeding I2S if we have buffered enough frames
   if (!audio_playback_active) {
     if (sbc_frames_in_buffer >= OPTIMAL_FRAMES_MIN) {
@@ -613,7 +639,7 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
     uint32_t samples_read = bytes_read / BYTES_PER_FRAME;
 
     // Apply volume scaling
-    uint8_t active_vol = get_active_volume();
+    uint8_t active_vol = current_hw_volume;
     for (uint32_t i = 0; i < samples_read * NUM_CHANNELS; i++) {
       samples[i] = apply_volume(samples[i], active_vol);
     }
@@ -741,6 +767,8 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
     
     if (active_a2dp_cid == 0) {
         active_a2dp_cid = cid;
+        last_active_a2dp_cid = active_a2dp_cid;
+        update_hw_volume();
         media_processing_close();
         media_processing_init(&conn->sbc_configuration);
         audio_stream_started = 1;
@@ -841,20 +869,24 @@ static void avrcp_packet_handler(uint8_t packet_type, uint16_t channel,
   switch (subevent) {
   case AVRCP_SUBEVENT_CONNECTION_ESTABLISHED: {
     uint16_t cid = avrcp_subevent_connection_established_get_avrcp_cid(packet);
-    bt_avrcp_state_t * conn = get_free_avrcp_connection();
-    if (!conn) return;
-
-    conn->avrcp_cid = cid;
-    conn->volume = 100; // Default volume per connection
-    avrcp_subevent_connection_established_get_bd_addr(packet, conn->addr);
-
     uint8_t status = avrcp_subevent_connection_established_get_status(packet);
+
     if (status != ERROR_CODE_SUCCESS) {
       printf("[avrcp] Connection FAILED: 0x%02x\n", status);
       return;
     }
 
-    printf("[avrcp] Connected: cid 0x%04x\n", cid);
+    bt_avrcp_state_t * conn = get_free_avrcp_connection();
+    if (!conn) {
+        printf("[avrcp] No free AVRCP connection slots\n");
+        return;
+    }
+
+    conn->avrcp_cid = cid;
+    conn->volume = 127; // Default volume per connection
+    avrcp_subevent_connection_established_get_bd_addr(packet, conn->addr);
+
+    printf("[avrcp] Connection Established: cid 0x%04x, addr %s\n", cid, bd_addr_to_str(conn->addr));
 
     // Register for volume change notifications from the phone
     avrcp_controller_enable_notification(
@@ -894,10 +926,14 @@ static void avrcp_controller_packet_handler(uint8_t packet_type,
 
   switch (subevent) {
   case AVRCP_SUBEVENT_NOTIFICATION_VOLUME_CHANGED: {
-    uint8_t vol =
-        avrcp_subevent_notification_volume_changed_get_absolute_volume(packet);
-
-    printf("[avrcp] Volume changed: %u/127 (%u%%)\n", vol, (vol * 100) / 127);
+    uint16_t cid = avrcp_subevent_notification_volume_changed_get_avrcp_cid(packet);
+    bt_avrcp_state_t * conn = get_avrcp_connection(cid);
+    if (conn) {
+        uint8_t vol = avrcp_subevent_notification_volume_changed_get_absolute_volume(packet);
+        conn->volume = vol;
+        update_hw_volume();
+        printf("[bt] AVRCP volume changed: %d\n", vol);
+    }
     break;
   }
 
@@ -939,10 +975,25 @@ static void avrcp_target_packet_handler(uint8_t packet_type, uint16_t channel,
     
     if (conn) {
         conn->volume = vol;
+        update_hw_volume();
     }
 
     printf("[avrcp-target] Volume set to: %u/127 for cid 0x%04x\n", vol, cid);
     break;
+  }
+
+  case AVRCP_SUBEVENT_NOTIFICATION_STATE: {
+      uint16_t cid = avrcp_subevent_notification_state_get_avrcp_cid(packet);
+      uint8_t event_id = avrcp_subevent_notification_state_get_event_id(packet);
+      uint8_t enabled = avrcp_subevent_notification_state_get_enabled(packet);
+      
+      printf("[avrcp-target] Remote device (cid 0x%04x) registered for notification 0x%02x: %s\n", 
+             cid, event_id, enabled ? "ENABLED" : "DISABLED");
+             
+      if (event_id == AVRCP_NOTIFICATION_EVENT_VOLUME_CHANGED) {
+          printf("[avrcp-target] -> This device SUPPORTS Absolute Volume!\n");
+      }
+      break;
   }
 
   default:
@@ -974,7 +1025,7 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel,
 
       // Make discoverable and connectable
       gap_discoverable_control(1);
-      gap_set_class_of_device(0x200414); // Audio: Loudspeaker
+      gap_set_class_of_device(0x240418); // Audio/Video: Headphones (Audio + Rendering)
       gap_set_local_name(BT_DEVICE_NAME);
 
       led_status_set(LED_STATE_DISCOVERABLE);
@@ -1061,11 +1112,11 @@ bool bt_audio_init(void) {
   // AVRCP Controller
   memset(sdp_avrcp_controller_service_buffer, 0,
          sizeof(sdp_avrcp_controller_service_buffer));
-  uint16_t controller_features =
-      (1 << AVRCP_CONTROLLER_SUPPORTED_FEATURE_CATEGORY_PLAYER_OR_RECORDER);
+  uint16_t supported_features_controller =
+      (1 << 0) | (1 << 1); // Category 1: Player/Recorder, Category 2: Monitor/Amplifier
   avrcp_controller_create_sdp_record(sdp_avrcp_controller_service_buffer,
                                      sdp_create_service_record_handle(),
-                                     controller_features, NULL, NULL);
+                                     supported_features_controller, NULL, NULL);
   sdp_register_service(sdp_avrcp_controller_service_buffer);
 
   // AVRCP Target
@@ -1101,4 +1152,134 @@ bool bt_audio_init(void) {
 
   printf("[bt] Bluetooth Audio initialized\n");
   return true;
+}
+
+// ============================================================================
+// Physical Button Command Handlers
+// ============================================================================
+
+static bt_avrcp_state_t * get_active_avrcp_connection(void) {
+    if (active_a2dp_cid != 0) {
+        a2dp_connection_t *a2dp = get_a2dp_connection(active_a2dp_cid);
+        if (a2dp) {
+            for (int i = 0; i < MAX_CONNECTIONS; i++) {
+                if (avrcp_connections[i].avrcp_cid != 0 && 
+                    bd_addr_cmp(avrcp_connections[i].addr, a2dp->addr) == 0) {
+                    return &avrcp_connections[i];
+                }
+            }
+        }
+    }
+
+    // Fallback 1: If no active audio stream is playing, check the last active stream
+    if (last_active_a2dp_cid != 0) {
+        a2dp_connection_t *a2dp = get_a2dp_connection(last_active_a2dp_cid);
+        if (a2dp) {
+            for (int i = 0; i < MAX_CONNECTIONS; i++) {
+                if (avrcp_connections[i].avrcp_cid != 0 && 
+                    bd_addr_cmp(avrcp_connections[i].addr, a2dp->addr) == 0) {
+                    return &avrcp_connections[i];
+                }
+            }
+        }
+    }
+
+    // Fallback 2: If no active audio stream is playing and last active failed, grab the first connected AVRCP device
+    for (int i = 0; i < MAX_CONNECTIONS; i++) {
+        if (avrcp_connections[i].avrcp_cid != 0) {
+            return &avrcp_connections[i];
+        }
+    }
+    return NULL;
+}
+
+void bt_audio_cmd_play_pause(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        if (active_a2dp_cid != 0) {
+            avrcp_controller_pause(avrcp->avrcp_cid);
+            printf("[bt] Button: Sent PAUSE\n");
+        } else {
+            avrcp_controller_play(avrcp->avrcp_cid);
+            printf("[bt] Button: Sent PLAY\n");
+        }
+    }
+}
+
+void bt_audio_cmd_mute(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        avrcp_controller_mute(avrcp->avrcp_cid);
+        printf("[bt] Button: Sent MUTE\n");
+    }
+}
+
+void bt_audio_cmd_next(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        avrcp_controller_forward(avrcp->avrcp_cid);
+        printf("[bt] Button: Next Song\n");
+    }
+}
+
+void bt_audio_cmd_prev(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        avrcp_controller_backward(avrcp->avrcp_cid);
+        printf("[bt] Button: Previous Song\n");
+    }
+}
+
+void bt_audio_cmd_vol_up(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        // Increment local volume
+        if (avrcp->volume < 127) {
+            avrcp->volume = (avrcp->volume + 8 <= 127) ? avrcp->volume + 8 : 127;
+        }
+        
+        // Notify the phone that volume changed (Absolute Volume Sync)
+        avrcp_target_volume_changed(avrcp->avrcp_cid, avrcp->volume);
+        update_hw_volume();
+        
+        // Send AVRCP Pass-Through as fallback for older devices
+        avrcp_controller_volume_up(avrcp->avrcp_cid);
+
+        printf("[bt] Button: Volume UP (now %d)\n", avrcp->volume);
+    }
+}
+
+void bt_audio_cmd_vol_down(void) {
+    bt_avrcp_state_t *avrcp = get_active_avrcp_connection();
+    if (avrcp) {
+        // Decrement local volume
+        if (avrcp->volume > 0) {
+            avrcp->volume = (avrcp->volume >= 8) ? avrcp->volume - 8 : 0;
+        }
+        
+        // Notify the phone that volume changed (Absolute Volume Sync)
+        avrcp_target_volume_changed(avrcp->avrcp_cid, avrcp->volume);
+        update_hw_volume();
+        
+        // Send AVRCP Pass-Through as fallback for older devices
+        avrcp_controller_volume_down(avrcp->avrcp_cid);
+
+        printf("[bt] Button: Volume DOWN (now %d)\n", avrcp->volume);
+    }
+}
+
+void bt_audio_cmd_pairing(void) {
+    printf("[bt] Button: Entering Pairing Mode\n");
+    
+    // Disconnect active A2DP connections to force them off
+    for (int i=0; i<MAX_CONNECTIONS; i++) {
+        if (a2dp_connections[i].a2dp_cid != 0) {
+            gap_disconnect(a2dp_connections[i].a2dp_cid);
+        }
+    }
+    
+    // Turn on discoverability immediately
+    gap_discoverable_control(1);
+    led_status_set(LED_STATE_DISCOVERABLE);
+    bt_audio_play_powerup_sound(); // Play sound to indicate pairing mode
 }

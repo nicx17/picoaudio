@@ -12,11 +12,13 @@
  */
 
 #include "btstack.h"
+#include "hardware/clocks.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include <stdio.h>
 
 #include "bt_audio.h"
+#include "button_handler.h"
 #include "i2s_output.h"
 #include "led_status.h"
 
@@ -24,7 +26,7 @@ int main(void) {
   // Initialize stdio for USB debug output
   stdio_init_all();
 
-  // Brief delay to allow USB serial to connect for debug output
+  // Wait for USB enumeration
   sleep_ms(2000);
 
   printf("===========================================\n");
@@ -58,6 +60,10 @@ int main(void) {
     printf("[main] ERROR: Bluetooth audio init failed\n");
     return -1;
   }
+
+  // Initialize Physical Buttons (Must be after bt_audio_init which initializes
+  // BTstack run loop)
+  button_handler_init();
 
   printf("[main] All systems initialized. Starting BTstack...\n");
   printf("[main] Waiting for Bluetooth connection...\n");

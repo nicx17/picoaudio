@@ -18,10 +18,6 @@
 #define I2S_NUM_CHANNELS 2
 
 // Buffer configuration
-// 8 buffers of 512 samples each gives ~92ms of buffering at 44.1kHz.
-// This massive DMA cushion is critical to prevent audio popping
-// (micro-underruns) if the main CPU thread gets temporarily delayed by CYW43
-// Wi-Fi/BT SPI polling.
 #define I2S_BUFFER_COUNT 8
 #define I2S_SAMPLES_PER_BUFFER 512
 

@@ -21,8 +21,17 @@
 bool bt_audio_init(void);
 
 /*
- * Play the power up UI sound
+ * Play powerup sound synchronously via I2S
  */
 void bt_audio_play_powerup_sound(void);
+
+// Button Command Handlers
+void bt_audio_cmd_play_pause(void);
+void bt_audio_cmd_mute(void);
+void bt_audio_cmd_vol_up(void);
+void bt_audio_cmd_vol_down(void);
+void bt_audio_cmd_next(void);
+void bt_audio_cmd_prev(void);
+void bt_audio_cmd_pairing(void);
 
 #endif // BT_AUDIO_H

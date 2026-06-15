@@ -33,6 +33,7 @@ add_executable(bluetooth_audio_receiver
     bt_audio.c
     i2s_output.c
     led_status.c
+    button_handler.c
 )
 
 # I2S pin assignments for the CJMCU-1334 DAC
@@ -63,6 +64,7 @@ target_link_libraries(bluetooth_audio_receiver
     pico_btstack_sbc_decoder
     pico_audio_i2s
     hardware_watchdog
+    pico_multicore
 )
 
 # Enable USB output for debug logging, disable UART
