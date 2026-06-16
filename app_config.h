@@ -26,7 +26,7 @@
 // UI Sound Volume (16-bit PCM amplitude)
 // Max is 32767. 50 provides a comfortable quiet chime.
 #ifndef UI_SOUND_VOLUME
-#define UI_SOUND_VOLUME 50
+#define UI_SOUND_VOLUME 300
 #endif
 
 #endif // APP_CONFIG_H
