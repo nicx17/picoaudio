@@ -48,11 +48,7 @@
 // SBC Codec Capabilities
 // ============================================================================
 
-// Advertise maximum quality SBC configuration to the phone:
-// - All sampling frequencies supported (16/32/44.1/48 kHz)
-// - All channel modes (Mono/Dual/Stereo/Joint Stereo)
-// - Bitpool range: 2 to 53 (53 = highest standard Joint Stereo quality, ~328
-// kbps)
+// Advertise max quality SBC (All freq/modes, bitpool 2-53)
 static uint8_t media_sbc_codec_capabilities[] = {
     0xFF, // Sampling frequencies + Channel modes: all supported
     0xFF, // Block lengths + Subbands + Allocation methods: all supported
@@ -367,9 +363,7 @@ static void handle_pcm_data(int16_t *data, int num_frames, int num_channels,
   (void)sample_rate;
   (void)num_channels;
 
-  // Resample the audio to handle clock drift between the phone and the Pico
-  // The SBC frame max size is 128 frames. Adding 16 frames headroom for
-  // stretching.
+  // Resample to fix clock drift (128+16 frame max)
   int16_t output_buffer[(128 + 16) * NUM_CHANNELS];
   uint32_t resampled_frames = btstack_resample_block(&resample_instance, data,
                                                      num_frames, output_buffer);
