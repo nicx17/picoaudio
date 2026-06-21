@@ -10,7 +10,7 @@
  */
 
 // The Bluetooth name of your device (visible to phones during pairing)
-#define BT_DEVICE_NAME "PCRXT"
+#define BT_DEVICE_NAME "CAR"
 
 // Maximum number of simultaneous Bluetooth connections (1 or 2).
 // Set to 1 if you only want a single device connected at a time.
@@ -26,7 +26,13 @@
 // UI Sound Volume (16-bit PCM amplitude)
 // Max is 32767. 50 provides a comfortable quiet chime.
 #ifndef UI_SOUND_VOLUME
-#define UI_SOUND_VOLUME 300
+#define UI_SOUND_VOLUME 200
+#endif
+
+// Enable latency logging (prints latency metrics every ~500ms)
+// Set to 1 to enable, 0 to disable.
+#ifndef ENABLE_LATENCY_LOGGING
+#define ENABLE_LATENCY_LOGGING 1
 #endif
 
 #endif // APP_CONFIG_H

@@ -19,6 +19,7 @@
 #include "hardware/watchdog.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
+#include "pico/flash.h"
 
 #include "app_config.h"
 #include "btstack.h"
@@ -29,14 +30,14 @@
 // Constants
 // ============================================================================
 
-#define NUM_CHANNELS 2
-#define BYTES_PER_FRAME (2 * NUM_CHANNELS) // 16-bit stereo = 4 bytes
+#define NUM_CHANNELS       2
+#define BYTES_PER_FRAME    (2 * NUM_CHANNELS) // 16-bit stereo = 4 bytes
 #define MAX_SBC_FRAME_SIZE 120
 
 // Ring buffer sizing for SBC frames
 #define OPTIMAL_FRAMES_MIN 10
 #define OPTIMAL_FRAMES_MAX 15
-#define ADDITIONAL_FRAMES 10
+#define ADDITIONAL_FRAMES  10
 
 // Default Bluetooth device name (can be overridden via CMake)
 #ifndef BT_DEVICE_NAME
@@ -162,32 +163,28 @@ static void update_hw_volume(void);
 
 static a2dp_connection_t *get_a2dp_connection(uint16_t cid) {
   for (int i = 0; i < MAX_CONNECTIONS; i++) {
-    if (a2dp_connections[i].a2dp_cid == cid)
-      return &a2dp_connections[i];
+    if (a2dp_connections[i].a2dp_cid == cid) return &a2dp_connections[i];
   }
   return NULL;
 }
 
 static a2dp_connection_t *get_free_a2dp_connection(void) {
   for (int i = 0; i < MAX_CONNECTIONS; i++) {
-    if (a2dp_connections[i].a2dp_cid == 0)
-      return &a2dp_connections[i];
+    if (a2dp_connections[i].a2dp_cid == 0) return &a2dp_connections[i];
   }
   return NULL;
 }
 
 static bt_avrcp_state_t *get_avrcp_connection(uint16_t cid) {
   for (int i = 0; i < MAX_CONNECTIONS; i++) {
-    if (avrcp_connections[i].avrcp_cid == cid)
-      return &avrcp_connections[i];
+    if (avrcp_connections[i].avrcp_cid == cid) return &avrcp_connections[i];
   }
   return NULL;
 }
 
 static bt_avrcp_state_t *get_free_avrcp_connection(void) {
   for (int i = 0; i < MAX_CONNECTIONS; i++) {
-    if (avrcp_connections[i].avrcp_cid == 0)
-      return &avrcp_connections[i];
+    if (avrcp_connections[i].avrcp_cid == 0) return &avrcp_connections[i];
   }
   return NULL;
 }
@@ -267,10 +264,8 @@ static void update_discoverability(void) {
 // Apply AVRCP absolute volume (0-127) to a 16-bit PCM sample
 // Uses a logarithmic (quadratic) curve to match natural human hearing response.
 static inline int16_t apply_volume(int16_t sample, uint8_t volume) {
-  if (volume == 0)
-    return 0;
-  if (volume >= 127)
-    return sample;
+  if (volume == 0) return 0;
+  if (volume >= 127) return sample;
 
   // x^2 curve for natural audio taper
   int32_t s = (int32_t)sample * volume * volume;
@@ -303,8 +298,7 @@ static const ui_tone_t sound_disconnect[] = {
 // Synthesizes a blocking square wave directly into the I2S hardware pool
 static void play_ui_sound(const ui_tone_t *sequence) {
   audio_buffer_pool_t *pool = i2s_output_get_producer_pool();
-  if (!pool)
-    return;
+  if (!pool) return;
 
   for (int i = 0; sequence[i].duration_ms > 0; i++) {
     uint32_t freq = sequence[i].freq;
@@ -317,8 +311,7 @@ static void play_ui_sound(const ui_tone_t *sequence) {
     while (samples_played < duration_samples) {
       // Block until an I2S buffer is free to keep perfect hardware sync
       audio_buffer_t *audio_buf = take_audio_buffer(pool, true);
-      if (!audio_buf)
-        continue;
+      if (!audio_buf) continue;
 
       int16_t *samples = (int16_t *)audio_buf->buffer->bytes;
       uint32_t to_play = audio_buf->max_sample_count;
@@ -351,7 +344,9 @@ static void play_ui_sound(const ui_tone_t *sequence) {
 }
 
 // Public wrapper for main.c
-void bt_audio_play_powerup_sound(void) { play_ui_sound(sound_powerup); }
+void bt_audio_play_powerup_sound(void) {
+  play_ui_sound(sound_powerup);
+}
 
 #else
 
@@ -380,13 +375,11 @@ static void handle_pcm_data(int16_t *data, int num_frames, int num_channels,
                                                      num_frames, output_buffer);
 
   audio_buffer_pool_t *pool = i2s_output_get_producer_pool();
-  if (!pool)
-    return;
+  if (!pool) return;
 
   // Block until there's an available I2S buffer
   audio_buffer_t *audio_buf = take_audio_buffer(pool, true);
-  if (!audio_buf)
-    return;
+  if (!audio_buf) return;
 
   // Apply volume scaling directly into the I2S DMA buffer
   uint8_t vol = current_hw_volume;
@@ -405,8 +398,7 @@ static void handle_pcm_data(int16_t *data, int num_frames, int num_channels,
 // ============================================================================
 
 static void media_processing_init(media_codec_configuration_sbc_t *config) {
-  if (media_initialized)
-    return;
+  if (media_initialized) return;
 
   printf("[bt] Media init: %u Hz, %u channels, bitpool %u-%u\n",
          config->sampling_frequency, config->num_channels,
@@ -428,8 +420,7 @@ static void media_processing_init(media_codec_configuration_sbc_t *config) {
 }
 
 static void media_processing_close(void) {
-  if (!media_initialized)
-    return;
+  if (!media_initialized) return;
 
   media_initialized = 0;
   audio_stream_started = 0;
@@ -462,8 +453,7 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
   // First byte is the media packet header (contains fragment/start/last info)
   int pos = 0;
 
-  if (size < 13)
-    return;
+  if (size < 13) return;
 
   // Skip RTP header (12 bytes) + 1 byte SBC media header
   pos = 13;
@@ -471,8 +461,7 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
   // Read the number of SBC frames
   uint8_t num_sbc_frames = packet[12] & 0x0F;
 
-  if (num_sbc_frames == 0)
-    return;
+  if (num_sbc_frames == 0) return;
 
   // Calculate individual frame size
   int frame_size = (size - pos) / num_sbc_frames;
@@ -493,6 +482,10 @@ static void handle_l2cap_media_data_packet(uint8_t seid, uint8_t *packet,
 // ============================================================================
 
 void core1_audio_decoder(void) {
+  // Register Core 1 as a lockout victim so that BTstack's flash_safe_execute()
+  // can safely pause this core when persisting link keys to flash.
+  flash_safe_execute_core_init();
+
   bool playing = false;
 
   while (true) {
@@ -529,6 +522,7 @@ void core1_audio_decoder(void) {
       sbc_frame_t frame;
       queue_remove_blocking(&sbc_frame_queue, &frame);
 
+#if ENABLE_LATENCY_LOGGING
       static uint32_t latency_log_counter = 0;
       latency_log_counter++;
       if (latency_log_counter >= 150) { // Log roughly every ~500ms
@@ -541,6 +535,7 @@ void core1_audio_decoder(void) {
         printf("[audio] Latency -> SBC: %.1fms, I2S: %.1fms | Total: %.1fms\n",
                sbc_latency_ms, i2s_latency_ms, sbc_latency_ms + i2s_latency_ms);
       }
+#endif
 
       sbc_decoder_instance->decode_signed_16(&sbc_decoder_context, 0,
                                              frame.data, frame.length);
@@ -561,10 +556,8 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   (void)channel;
   (void)size;
 
-  if (packet_type != HCI_EVENT_PACKET)
-    return;
-  if (hci_event_packet_get_type(packet) != HCI_EVENT_A2DP_META)
-    return;
+  if (packet_type != HCI_EVENT_PACKET) return;
+  if (hci_event_packet_get_type(packet) != HCI_EVENT_A2DP_META) return;
 
   uint8_t subevent = hci_event_a2dp_meta_get_subevent_code(packet);
 
@@ -604,8 +597,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
         a2dp_subevent_signaling_media_codec_sbc_configuration_get_a2dp_cid(
             packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     media_codec_configuration_sbc_t *config = &conn->sbc_configuration;
 
@@ -652,8 +644,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
 
     uint16_t cid = a2dp_subevent_stream_established_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      return;
+    if (!conn) return;
 
     conn->stream_state = STREAM_STATE_OPEN;
     conn->a2dp_local_seid =
@@ -666,8 +657,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   case A2DP_SUBEVENT_STREAM_STARTED: {
     uint16_t cid = a2dp_subevent_stream_started_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     printf("[bt] Stream STARTED for cid 0x%04x\n", cid);
     conn->stream_state = STREAM_STATE_PLAYING;
@@ -687,8 +677,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   case A2DP_SUBEVENT_STREAM_SUSPENDED: {
     uint16_t cid = a2dp_subevent_stream_suspended_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     printf("[bt] Stream PAUSED for cid 0x%04x\n", cid);
     conn->stream_state = STREAM_STATE_PAUSED;
@@ -702,8 +691,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   case A2DP_SUBEVENT_STREAM_STOPPED: {
     uint16_t cid = a2dp_subevent_stream_stopped_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     printf("[bt] Stream STOPPED for cid 0x%04x\n", cid);
     conn->stream_state = STREAM_STATE_PAUSED;
@@ -717,8 +705,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
   case A2DP_SUBEVENT_STREAM_RELEASED: {
     uint16_t cid = a2dp_subevent_stream_released_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     printf("[bt] Stream RELEASED for cid 0x%04x\n", cid);
     conn->stream_state = STREAM_STATE_PAUSED;
@@ -733,8 +720,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
     uint16_t cid =
         a2dp_subevent_signaling_connection_released_get_a2dp_cid(packet);
     a2dp_connection_t *conn = get_a2dp_connection(cid);
-    if (!conn)
-      break;
+    if (!conn) break;
 
     printf("[bt] A2DP disconnected for cid 0x%04x\n", cid);
 
@@ -749,8 +735,7 @@ static void a2dp_sink_packet_handler(uint8_t packet_type, uint16_t channel,
 
     int active_connections = 0;
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
-      if (a2dp_connections[i].a2dp_cid != 0)
-        active_connections++;
+      if (a2dp_connections[i].a2dp_cid != 0) active_connections++;
     }
     if (active_connections == 0) {
       play_ui_sound(sound_disconnect);
@@ -772,10 +757,8 @@ static void avrcp_packet_handler(uint8_t packet_type, uint16_t channel,
   (void)channel;
   (void)size;
 
-  if (packet_type != HCI_EVENT_PACKET)
-    return;
-  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META)
-    return;
+  if (packet_type != HCI_EVENT_PACKET) return;
+  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META) return;
 
   uint8_t subevent = hci_event_avrcp_meta_get_subevent_code(packet);
 
@@ -831,10 +814,8 @@ static void avrcp_controller_packet_handler(uint8_t packet_type,
   (void)channel;
   (void)size;
 
-  if (packet_type != HCI_EVENT_PACKET)
-    return;
-  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META)
-    return;
+  if (packet_type != HCI_EVENT_PACKET) return;
+  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META) return;
 
   uint8_t subevent = hci_event_avrcp_meta_get_subevent_code(packet);
 
@@ -878,10 +859,8 @@ static void avrcp_target_packet_handler(uint8_t packet_type, uint16_t channel,
   (void)channel;
   (void)size;
 
-  if (packet_type != HCI_EVENT_PACKET)
-    return;
-  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META)
-    return;
+  if (packet_type != HCI_EVENT_PACKET) return;
+  if (hci_event_packet_get_type(packet) != HCI_EVENT_AVRCP_META) return;
 
   uint8_t subevent = hci_event_avrcp_meta_get_subevent_code(packet);
 
@@ -931,8 +910,7 @@ static void hci_packet_handler(uint8_t packet_type, uint16_t channel,
   (void)channel;
   (void)size;
 
-  if (packet_type != HCI_EVENT_PACKET)
-    return;
+  if (packet_type != HCI_EVENT_PACKET) return;
 
   uint8_t event_type = hci_event_packet_get_type(packet);
 

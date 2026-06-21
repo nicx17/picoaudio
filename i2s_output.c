@@ -124,8 +124,7 @@ void play_test_tone(void) {
   int iterations = audio_format.sample_freq / I2S_SAMPLES_PER_BUFFER;
   for (int i = 0; i < iterations; i++) {
     audio_buffer_t *buffer = take_audio_buffer(producer_pool, true);
-    if (!buffer)
-      continue;
+    if (!buffer) continue;
 
     int16_t *samples = (int16_t *)buffer->buffer->bytes;
     for (int j = 0; j < buffer->max_sample_count; j++) {
@@ -134,8 +133,7 @@ void play_test_tone(void) {
       samples[j * 2] = val;             // Left
       samples[j * 2 + 1] = val;         // Right
       phase += phase_inc;
-      if (phase >= 2.0f * (float)M_PI)
-        phase -= 2.0f * (float)M_PI;
+      if (phase >= 2.0f * (float)M_PI) phase -= 2.0f * (float)M_PI;
     }
     buffer->sample_count = buffer->max_sample_count;
     give_audio_buffer(producer_pool, buffer);

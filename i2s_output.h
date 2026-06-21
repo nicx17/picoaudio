@@ -13,12 +13,12 @@
 #include <stdint.h>
 
 // Audio format parameters
-#define I2S_SAMPLE_RATE 44100
+#define I2S_SAMPLE_RATE     44100
 #define I2S_BITS_PER_SAMPLE 16
-#define I2S_NUM_CHANNELS 2
+#define I2S_NUM_CHANNELS    2
 
 // Buffer configuration
-#define I2S_BUFFER_COUNT 4
+#define I2S_BUFFER_COUNT       4
 #define I2S_SAMPLES_PER_BUFFER 256
 
 // DAC Mute Pin
